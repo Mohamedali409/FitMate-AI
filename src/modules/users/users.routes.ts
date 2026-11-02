@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { usersController } from './users.controller.js';
 import { validate } from '../../shared/validation/validate.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { authStrictRateLimiter } from '../../middleware/rateLimiter.js';
 import {
   updateProfileSchema,
   completeOnboardingSchema,
@@ -31,8 +32,8 @@ router.post(
 // EP-USER-004: Update preferences (language & units)
 router.patch('/preferences', validate(updatePreferencesSchema), usersController.updatePreferences);
 
-// EP-USER-005: Initiate account deletion saga
-router.delete('/account', validate(deleteAccountSchema), usersController.deleteAccount);
+// EP-USER-005: Initiate account deletion saga (Auth Strict: 5 req / 15m)
+router.delete('/account', authStrictRateLimiter, validate(deleteAccountSchema), usersController.deleteAccount);
 
 // EP-USER-006: Check account deletion status
 router.get('/account/deletion-status', usersController.getDeletionStatus);

@@ -8,6 +8,7 @@ import {
 } from '../helpers/db.helper.js';
 import { UserModel } from '../../src/modules/auth/models/user.model.js';
 import { UserProfileModel } from '../../src/modules/users/models/userProfile.model.js';
+import { resetRateLimits } from '../../src/middleware/rateLimiter.js';
 
 describe('Security & Multi-Tenant IDOR / BOLA Defenses (Integration)', () => {
   const app = createApp();
@@ -22,6 +23,7 @@ describe('Security & Multi-Tenant IDOR / BOLA Defenses (Integration)', () => {
 
   beforeEach(async () => {
     await clearTestDatabase();
+    await resetRateLimits();
   });
 
   async function registerUser(email: string, displayName: string) {

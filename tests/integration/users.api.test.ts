@@ -11,6 +11,7 @@ import { UserProfileModel } from '../../src/modules/users/models/userProfile.mod
 import { BodyWeightEntryModel } from '../../src/modules/progress/models/bodyWeightEntry.model.js';
 import { DeletionSagaJobModel } from '../../src/modules/users/models/deletionSagaJob.model.js';
 import { ConsentRecordModel } from '../../src/modules/users/models/consentRecord.model.js';
+import { resetRateLimits } from '../../src/middleware/rateLimiter.js';
 
 describe('UsersModule REST Endpoints (Integration)', () => {
   const app = createApp();
@@ -25,6 +26,7 @@ describe('UsersModule REST Endpoints (Integration)', () => {
 
   beforeEach(async () => {
     await clearTestDatabase();
+    await resetRateLimits();
   });
 
   const registrationPayload = {
