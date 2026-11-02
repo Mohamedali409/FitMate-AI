@@ -1,0 +1,162 @@
+flowchart TD
+%% FitMate AI — System Architecture Diagram
+%% Phase 3.1: System Architecture Design (Final Consistency Refinement)
+
+    subgraph CLIENT["Mobile Application (React Native & Expo)"]
+        direction TB
+        UI["UI Layer: Expo Router & Design System\n(RTL/LTR Mirrored, Logical Spacing)"]
+        STATE["State & Cache Layer: TanStack Query\n(Optimistic UI, Query Keys Factory)"]
+        WIZARD["Transient Onboarding Wizard State\n(Volatile In-Memory Only, Zero Disk Writes)"]
+        OFFLINE["Offline Sync Engine & Storage\n(Per-Session FIFO Queue, TTL Max-Age Guard, UUIDv4)"]
+        MEM_AUTH["Runtime Memory Token Cache\n(Short-Lived 15m Access JWT Only)"]
+        SECSTORE["expo-secure-store\n(Platform Secure Storage: Refresh Token Only)"]
+        
+        UI --> STATE
+        UI --> WIZARD
+        UI --> OFFLINE
+        STATE --> MEM_AUTH
+        STATE --> SECSTORE
+    end
+
+    subgraph GATEWAY["API Gateway & Middleware Pipeline (Express)"]
+        direction TB
+        TLS["1. TLS 1.3 / HTTPS Termination"]
+        CORR["2. Request Correlation ID Injection\n(x-request-id & AsyncLocalStorage)"]
+        SEC["3. Security Headers (Helmet) & Browser Origin Protection (CORS)\n(CORS is browser-only; Bearer JWT is mobile auth)"]
+        PARSER["4. JSON Body Parser (100kb limit)\n(Mitigates Buffer Exhaustion; ReDoS Requires Safe Regex)"]
+        RATE["5. Route-Aware Rate Limiting\n(Public IP: 5/15m, Coach UserID: 20/hr, General: 100/m)"]
+        ROUTE_TYPE{"6. Route Protection Boundary"}
+        AUTH_GUARD["7a. Auth Guard (Protected Routes)\n(Stateless JWT Signature Check; tokenVersion on Sensitive Routes)"]
+        ZOD["7b. Zod Payload Validation (.strict())\n(Strictly Rejects Unknown Extraneous Fields)"]
+        
+        TLS --> CORR --> SEC --> PARSER --> RATE --> ROUTE_TYPE
+        ROUTE_TYPE -- "Protected Routes" --> AUTH_GUARD --> ZOD
+        ROUTE_TYPE -- "Public Routes\n(/register, /login, /refresh)" --> ZOD
+    end
+
+    CLIENT -- "HTTPS / TLS 1.3 (JSON REST API)" --> TLS
+
+    subgraph MONOLITH["Node.js / TypeScript Modular Monolith"]
+        direction TB
+        
+        subgraph AUTH_MOD["AuthModule"]
+            AUTH_CTRL["AuthController\n(Public & Protected Endpoints)"]
+            AUTH_SRV["AuthService\n(Argon2id Hashing, JWT Signing)"]
+            AUTH_REPO["AuthRepository"]
+            AUTH_CTRL --> AUTH_SRV --> AUTH_REPO
+        end
+        
+        subgraph USERS_MOD["UsersModule"]
+            USERS_CTRL["UsersController\n(Profile, Preferences, Account Deletion)"]
+            USERS_SRV["UsersService\n(Profile Traits, Weight Snapshot & Deletion Orchestrator)"]
+            USERS_REPO["UsersRepository"]
+            USERS_CTRL --> USERS_SRV --> USERS_REPO
+        end
+        
+        subgraph NUTR_MOD["NutritionModule"]
+            NUTR_CTRL["NutritionController"]
+            NUTR_SRV["NutritionService\n(Mifflin-St Jeor Engine & Targets)"]
+            NUTR_REPO["NutritionRepository"]
+            NUTR_CTRL --> NUTR_SRV --> NUTR_REPO
+        end
+        
+        subgraph WORK_MOD["WorkoutsModule"]
+            WORK_CTRL["WorkoutsController\n(POST /sync Idempotent)"]
+            WORK_SRV["WorkoutsService\n(Volume & Tonnage Calculator)"]
+            WORK_REPO["WorkoutsRepository"]
+            WORK_CTRL --> WORK_SRV --> WORK_REPO
+        end
+        
+        subgraph PROG_MOD["ProgressModule"]
+            PROG_CTRL["ProgressController"]
+            PROG_SRV["ProgressService\n(Authoritative Weight Ledger & 7D Moving Avg)"]
+            PROG_REPO["ProgressRepository"]
+            PROG_CTRL --> PROG_SRV --> PROG_REPO
+        end
+        
+        subgraph COACH_MOD["CoachModule"]
+            COACH_CTRL["CoachController\n(Rate Limit: 20 msg/hr)"]
+            GUARD_L1["Layer 1: Deterministic Pattern Pre-Filter\n(Preliminary Acute Pain & Meds Scan)"]
+            CTX["Context Assembly Engine\n(Read-Only Snapshots)"]
+            GUARD_L2["Layer 2: System Role Boundary\n(Informational Non-Medical Prompt)"]
+            ADAPTER["AICoachAdapter Interface\n(Provider-Agnostic Abstraction)"]
+            BUFFER["Full Response Buffer in Server Memory\n(Complete Text Buffered Prior to Delivery)"]
+            GUARD_L3["Layer 3: Output Safety Validator\n(Post-Generation Diagnosis Inspection)"]
+            COACH_SRV["CoachService\n(Conversation Orchestrator)"]
+            COACH_REPO["CoachRepository"]
+            
+            COACH_CTRL --> GUARD_L1
+            GUARD_L1 -- "Passed Pre-Filter" --> CTX --> GUARD_L2 --> ADAPTER --> BUFFER --> GUARD_L3
+            GUARD_L3 -- "Safe: Return Payload" --> COACH_SRV
+            GUARD_L3 -- "Unsafe: Substitute Refusal" --> COACH_SRV
+            COACH_SRV --> COACH_REPO
+            COACH_SRV --> COACH_CTRL
+            GUARD_L1 -- "Refusal Triggered" --> COACH_CTRL
+        end
+    end
+
+    ZOD --> AUTH_CTRL
+    ZOD --> USERS_CTRL
+    ZOD --> NUTR_CTRL
+    ZOD --> WORK_CTRL
+    ZOD --> PROG_CTRL
+    ZOD --> COACH_CTRL
+
+    %% Inter-Module Communication (Strict In-Process Service Contracts)
+    AUTH_SRV -- "Atomic Registration Transaction (4 Collections)" --> USERS_SRV
+    USERS_SRV -- "Pure Calculation: calculateEnergyTargets(params)" --> NUTR_SRV
+    NUTR_SRV -. "Read Profile Snapshot: getProfileSnapshot" .-> USERS_SRV
+    WORK_SRV -. "Read Training Experience: getProfileSnapshot" .-> USERS_SRV
+    PROG_SRV -- "Query Session Dates: getCompletedSessionDates" --> WORK_SRV
+    USERS_SRV -- "Sync Commands: logWeight & getLatestWeight" --> PROG_SRV
+    PROG_SRV -. "Async Domain Event: weight.recorded (Timestamp Guarded)" .-> USERS_SRV
+    USERS_SRV -. "Orchestrated Account Deletion Saga (4 Stages: Lockout -> Purge -> Pseudonymize -> Delete)" .-> MONOLITH
+    
+    %% Coach Read-Only Snapshots (Zero Write Mutations)
+    CTX -. "Read-Only User Profile Snapshot" .-> USERS_SRV
+    CTX -. "Read-Only Today Nutrition Snapshot" .-> NUTR_SRV
+    CTX -. "Read-Only Recent Workouts Snapshot" .-> WORK_SRV
+
+    %% Centralized Error Handling Boundary
+    ERR_BOUNDARY["Centralized AppError Boundary\n(Catches Domain & System Exceptions, Masks 500s)"]
+    MONOLITH -. "Unhandled Exceptions" .-> ERR_BOUNDARY
+    ERR_BOUNDARY -. "Standard Error JSON Envelope" .-> CLIENT
+
+    subgraph DATABASE["MongoDB Database Tier (Replica Set Required)"]
+        direction TB
+        COL_USERS[("users\n(Credentials, TokenVersion, Status)")]
+        COL_TOKENS[("refresh_tokens\n(Revocable Hashed Refresh Tokens)")]
+        COL_PW_RESET[("password_reset_tokens\n(Single-Use SHA-256 Reset Tokens)")]
+        COL_PROFILES[("user_profiles\n(Physical Traits, Goals, Weight Snapshot)")]
+        COL_CONSENT[("consent_records\n(Immutable Health Consent Audit)")]
+        COL_MEALS[("nutrition_logs\n(4 Slots, Quick Add Items)")]
+        COL_FOODS[("food_library\n(Curated Baseline ~150-200)")]
+        COL_SESSIONS[("workout_sessions\n(Completed Sets, Volume)")]
+        COL_EXERCISES[("exercise_catalog\n(Curated Bundled ~100)")]
+        COL_IDEMPOTENCY[("processed_idempotency_keys\n(Atomic Ledger: TTL >= Max Queue Age)")]
+        COL_WEIGHT[("body_weight_entries\n(Authoritative Weight History)")]
+        COL_COACH[("coach_conversations\n(Audit Chat Logs)")]
+    end
+
+    AUTH_REPO --> COL_USERS
+    AUTH_REPO --> COL_TOKENS
+    AUTH_REPO --> COL_PW_RESET
+    USERS_REPO --> COL_PROFILES
+    USERS_REPO --> COL_CONSENT
+    NUTR_REPO --> COL_MEALS
+    NUTR_REPO --> COL_FOODS
+    WORK_REPO --> COL_SESSIONS
+    WORK_REPO --> COL_EXERCISES
+    WORK_REPO --> COL_IDEMPOTENCY
+    PROG_REPO --> COL_WEIGHT
+    COACH_REPO --> COL_COACH
+
+    subgraph EXTERNAL["External Services Boundary (Approved MVP Scope)"]
+        direction TB
+        OAUTH_PROVIDERS["Apple & Google Identity Services\n(Cryptographic Token Verification)"]
+        LLM_VENDOR["External LLM Provider\n(Candidate Evaluation Deferred per Q-001)"]
+    end
+
+    AUTH_SRV -- "OAuth Token Verification" --> OAUTH_PROVIDERS
+    ADAPTER -- "Buffered Inference Request" --> LLM_VENDOR
+    LLM_VENDOR -- "Raw Model Response Text" --> ADAPTER
