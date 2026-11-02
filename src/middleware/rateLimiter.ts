@@ -207,6 +207,17 @@ export const silentRefreshRateLimiter = createRateLimiter({
 });
 
 /**
+ * Search: 60 requests / 1 minute per User / IP
+ * Applied to: Food search, exercise search
+ */
+export const searchRateLimiter = createRateLimiter({
+  prefix: 'search',
+  maxRequests: 60,
+  windowMs: 60 * 1000, // 1 minute
+  keyGenerator: (req) => req.user?.id || getClientIp(req),
+});
+
+/**
  * Reset rate limits helper for testing suites
  */
 export async function resetRateLimits(): Promise<void> {

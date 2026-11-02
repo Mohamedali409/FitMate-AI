@@ -9,6 +9,7 @@ import { errorMiddleware } from './middleware/error.middleware.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
+import { nutritionRoutes } from './modules/nutrition/nutrition.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -49,6 +50,7 @@ export function createApp(): Express {
   // 6. Mount domain feature modules
   app.use(`${env.API_PREFIX}/auth`, authRoutes);
   app.use(`${env.API_PREFIX}/users`, usersRoutes);
+  app.use(`${env.API_PREFIX}/nutrition`, nutritionRoutes);
 
   // 7. 404 Catch-all handler for unmapped routes
   app.use(notFoundMiddleware);

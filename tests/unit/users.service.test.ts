@@ -110,5 +110,41 @@ describe('Users Service Logic & Target Protections (Unit)', () => {
       expect(result.nutritionTargets.isTargetsCustomized).toBe(false);
     });
   });
+
+  describe('Cross-Module Target Snapshot Provider (getProfileSnapshot)', () => {
+    it('should return active target snapshot with isEstimated: true for valid user', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        dailyCalorieTarget: 2150,
+        proteinTargetGrams: 155.0,
+        carbsTargetGrams: 230.0,
+        fatTargetGrams: 67.5,
+        isTargetsCustomized: false,
+        unitSystem: 'metric',
+        preferredLanguage: 'ar',
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+      const snapshot = await service.getProfileSnapshot(mockProfile.userId.toString());
+
+      expect(snapshot.userId).toBe(mockProfile.userId.toString());
+      expect(snapshot.dailyCalorieTarget).toBe(2150);
+      expect(snapshot.proteinTargetGrams).toBe(155.0);
+      expect(snapshot.carbsTargetGrams).toBe(230.0);
+      expect(snapshot.fatTargetGrams).toBe(67.5);
+      expect(snapshot.isTargetsCustomized).toBe(false);
+      expect(snapshot.isEstimated).toBe(true);
+      expect(snapshot.unitSystem).toBe('metric');
+      expect(snapshot.preferredLanguage).toBe('ar');
+    });
+
+    it('should throw RESOURCE_NOT_FOUND when user profile is absent', async () => {
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(null);
+
+      await expect(service.getProfileSnapshot('507f1f77bcf86cd799439011')).rejects.toThrow(
+        'User profile not found.'
+      );
+    });
+  });
 });
 

@@ -25,63 +25,10 @@ import {
   ChangePasswordInput,
 } from './dto/auth.dto.js';
 import { env } from '../../config/env.js';
+import { calculateEnergyTargets } from '../nutrition/domain/energyCalculator.js';
 
-export function calculateEnergyTargets(params: {
-  weightKg: number;
-  heightCm: number;
-  birthDate: string;
-  biologicalSex: 'male' | 'female' | 'prefer_not_to_say';
-  activityMultiplier: number;
-  goal: 'fat_loss' | 'muscle_gain' | 'recomposition' | 'maintenance' | 'general_fitness' | 'undecided';
-}) {
-  const birthYear = new Date(params.birthDate).getFullYear();
-  const age = Math.max(13, new Date().getFullYear() - birthYear);
-
-  // DEC-005: Mifflin-St Jeor sex constant: male +5, female -161, prefer_not_to_say -78
-  let s = -78;
-  if (params.biologicalSex === 'male') s = 5;
-  else if (params.biologicalSex === 'female') s = -161;
-
-  const bmr = 10 * params.weightKg + 6.25 * params.heightCm - 5 * age + s;
-  const tdee = bmr * params.activityMultiplier;
-
-  let targetCalories = tdee;
-  let proteinFactor = 1.6;
-
-  switch (params.goal) {
-    case 'fat_loss':
-      targetCalories = Math.max(1200, tdee - 500);
-      proteinFactor = 1.8;
-      break;
-    case 'muscle_gain':
-      targetCalories = tdee + 300;
-      proteinFactor = 2.0;
-      break;
-    case 'recomposition':
-      targetCalories = Math.max(1200, tdee - 200);
-      proteinFactor = 2.0;
-      break;
-    default:
-      targetCalories = tdee;
-      proteinFactor = 1.6;
-      break;
-  }
-
-  const dailyCalorieTarget = Math.round(targetCalories);
-  const proteinTargetGrams = Math.round(params.weightKg * proteinFactor * 10) / 10;
-  const fatCalories = dailyCalorieTarget * 0.25;
-  const fatTargetGrams = Math.round((fatCalories / 9) * 10) / 10;
-  const carbCalories = Math.max(0, dailyCalorieTarget - proteinTargetGrams * 4 - fatTargetGrams * 9);
-  const carbsTargetGrams = Math.round((carbCalories / 4) * 10) / 10;
-
-  return {
-    dailyCalorieTarget,
-    proteinTargetGrams,
-    carbsTargetGrams,
-    fatTargetGrams,
-    isEstimated: true as const, // Core Invariant 2
-  };
-}
+// Re-export for backward compatibility with existing tests
+export { calculateEnergyTargets };
 
 export class AuthService {
   private googleClient: OAuth2Client;

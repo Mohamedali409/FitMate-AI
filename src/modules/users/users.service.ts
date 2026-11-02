@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { usersRepository, UsersRepository } from './users.repository.js';
 import { authRepository, AuthRepository } from '../auth/auth.repository.js';
-import { calculateEnergyTargets } from '../auth/auth.service.js';
+import { calculateEnergyTargets } from '../nutrition/domain/energyCalculator.js';
 import { verifyPassword, hashIp, truncateUserAgent } from '../auth/auth.utils.js';
 import { AppError, ErrorCode } from '../../shared/errors/AppError.js';
 import {
@@ -49,6 +49,29 @@ export class UsersService {
         isEstimated: profile.isEstimated,
         targetsCalculatedAt: profile.targetsCalculatedAt?.toISOString(),
       },
+    };
+  }
+
+  /**
+   * Cross-Module Target Snapshot Provider (EP-NUTR-001 Integration)
+   * Exposes active nutritional targets and preferences to NutritionModule without coupling persistence.
+   */
+  async getProfileSnapshot(userId: string) {
+    const profile = await this.usersRepo.findProfileByUserId(userId);
+    if (!profile) {
+      throw AppError.notFound('User profile not found.', ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    return {
+      userId: profile.userId.toString(),
+      dailyCalorieTarget: profile.dailyCalorieTarget || 2000,
+      proteinTargetGrams: profile.proteinTargetGrams || 150.0,
+      carbsTargetGrams: profile.carbsTargetGrams || 200.0,
+      fatTargetGrams: profile.fatTargetGrams || 65.0,
+      isTargetsCustomized: profile.isTargetsCustomized,
+      isEstimated: true as const,
+      unitSystem: profile.unitSystem,
+      preferredLanguage: profile.preferredLanguage,
     };
   }
 
