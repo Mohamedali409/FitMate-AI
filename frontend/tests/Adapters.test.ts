@@ -13,8 +13,8 @@ describe('Frontend API Adapters (Isolation & Boundaries)', () => {
     const loginRes = await mockAuth.login('demo@fitmate.ai', 'Secret123!');
     expect(loginRes.user.email).toBe('demo@fitmate.ai');
     expect(loginRes.tokens.tokenType).toBe('Bearer');
-    expect(loginRes.profile.dailyCalorieTarget).toBe(2150);
-    expect(loginRes.profile.isEstimated).toBe(true);
+    expect(loginRes.profile?.dailyCalorieTarget).toBe(2150);
+    expect(loginRes.profile?.isEstimated).toBe(true);
   });
 
   it('should strictly isolate MockNutritionAdapter and return Core Invariant 2 isEstimated: true', async () => {
@@ -24,8 +24,8 @@ describe('Frontend API Adapters (Isolation & Boundaries)', () => {
     expect(mockNutr.isMock).toBe(true);
     expect(realNutr.isMock).toBe(false);
 
-    // Search Egyptian dishes
-    const searchRes = await mockNutr.searchFoods({ category: 'egyptian_dishes' });
+    // Search Middle Eastern dishes
+    const searchRes = await mockNutr.searchFoods({ category: 'middle_eastern_dishes' });
     expect(searchRes.items.length).toBeGreaterThan(0);
 
     const koshari = searchRes.items.find((f) => f.catalogId === 'food_eg_koshari_001');

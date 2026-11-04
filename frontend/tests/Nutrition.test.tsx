@@ -22,11 +22,11 @@ describe('Nutrition Visual Components (FE 1)', () => {
 
     expect(handleSearch).toHaveBeenCalledWith('Koshari', undefined);
 
-    // Click on Egyptian Dishes category pill
-    const catBtn = screen.getByText('Egyptian Dishes');
+    // Click on Middle Eastern Dishes category pill
+    const catBtn = screen.getByText('Middle Eastern Dishes');
     fireEvent.click(catBtn);
 
-    expect(handleSearch).toHaveBeenCalledWith('Koshari', 'egyptian_dishes');
+    expect(handleSearch).toHaveBeenCalledWith('Koshari', 'middle_eastern_dishes');
   });
 
   it('should render FoodResultCard with bilingual titles and macros', () => {
@@ -36,7 +36,7 @@ describe('Nutrition Visual Components (FE 1)', () => {
       catalogId: 'food_eg_koshari_001',
       nameEn: 'Egyptian Koshari',
       nameAr: 'كشري مصري',
-      category: 'egyptian_dishes',
+      category: 'middle_eastern_dishes',
       servingSizeGrams: 100,
       caloriesPer100g: 165,
       proteinPer100g: 5.8,

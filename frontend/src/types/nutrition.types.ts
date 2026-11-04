@@ -4,16 +4,29 @@
  */
 
 export type FoodCategory =
-  | 'egyptian_dishes'
-  | 'middle_eastern'
-  | 'poultry_meat'
-  | 'fish_seafood'
-  | 'grains_breads'
+  | 'protein'
+  | 'carbohydrates'
+  | 'legumes'
   | 'dairy_eggs'
-  | 'fruits_vegetables'
-  | 'legumes_nuts'
-  | 'beverages'
-  | 'snacks_sweets';
+  | 'vegetables'
+  | 'fruits'
+  | 'fats_oils'
+  | 'middle_eastern_dishes'
+  | 'baked_goods'
+  | 'beverages_snacks';
+
+export const FOOD_CATEGORIES: FoodCategory[] = [
+  'protein',
+  'carbohydrates',
+  'legumes',
+  'dairy_eggs',
+  'vegetables',
+  'fruits',
+  'fats_oils',
+  'middle_eastern_dishes',
+  'baked_goods',
+  'beverages_snacks',
+];
 
 export interface DefaultPortion {
   portionId?: string;
@@ -27,7 +40,7 @@ export interface StandardPortion {
   unitNameEn: string;
   unitNameAr: string;
   gramWeight: number;
-  isDefault: boolean;
+  isDefault?: boolean;
 }
 
 export interface FoodItemSummary {

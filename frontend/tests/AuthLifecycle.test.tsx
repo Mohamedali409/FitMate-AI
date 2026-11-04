@@ -5,22 +5,25 @@ import { AuthProvider, useAuth } from '../src/features/auth/AuthContext';
 
 // Helper test consumer component
 const AuthConsumer: React.FC = () => {
+  const auth = useAuth();
   const {
     isAuthenticated,
     user,
     token,
-    refreshToken,
     login,
     logout,
     refreshSession,
-  } = useAuth();
+  } = auth;
+
+  // SEC-FE-005 verification: raw refreshToken must not be exposed on useAuth()
+  const isRefreshTokenExposed = Boolean((auth as any).refreshToken);
 
   return (
     <div>
       <div data-testid="auth-status">{isAuthenticated ? 'authenticated' : 'unauthenticated'}</div>
       <div data-testid="user-email">{user ? user.email : 'none'}</div>
       <div data-testid="has-token">{token ? 'yes' : 'no'}</div>
-      <div data-testid="has-refresh-token">{refreshToken ? 'yes' : 'no'}</div>
+      <div data-testid="exposed-refresh-token">{isRefreshTokenExposed ? 'exposed' : 'encapsulated'}</div>
       <button
         data-testid="login-btn"
         onClick={() => login('demo@fitmate.ai', 'Secret123!')}
@@ -48,7 +51,7 @@ describe('Auth Lifecycle & In-Memory Token Safety', () => {
     sessionStorage.clear();
   });
 
-  it('should initialize in an unauthenticated state with null tokens', () => {
+  it('should initialize in an unauthenticated state with null tokens and encapsulated refresh token', () => {
     render(
       <AuthProvider>
         <AuthConsumer />
@@ -58,7 +61,8 @@ describe('Auth Lifecycle & In-Memory Token Safety', () => {
     expect(screen.getByTestId('auth-status')).toHaveTextContent('unauthenticated');
     expect(screen.getByTestId('user-email')).toHaveTextContent('none');
     expect(screen.getByTestId('has-token')).toHaveTextContent('no');
-    expect(screen.getByTestId('has-refresh-token')).toHaveTextContent('no');
+    // SEC-FE-005: Raw refresh token must never be exposed to consumers
+    expect(screen.getByTestId('exposed-refresh-token')).toHaveTextContent('encapsulated');
   });
 
   it('should login, populate state in-memory, and NEVER store tokens in localStorage', async () => {
@@ -75,7 +79,7 @@ describe('Auth Lifecycle & In-Memory Token Safety', () => {
       expect(screen.getByTestId('auth-status')).toHaveTextContent('authenticated');
       expect(screen.getByTestId('user-email')).toHaveTextContent('demo@fitmate.ai');
       expect(screen.getByTestId('has-token')).toHaveTextContent('yes');
-      expect(screen.getByTestId('has-refresh-token')).toHaveTextContent('yes');
+      expect(screen.getByTestId('exposed-refresh-token')).toHaveTextContent('encapsulated');
     }, { timeout: 2000 });
 
     // Strict Security Invariant: Tokens MUST NEVER be stored in localStorage or sessionStorage
@@ -108,7 +112,6 @@ describe('Auth Lifecycle & In-Memory Token Safety', () => {
       expect(screen.getByTestId('auth-status')).toHaveTextContent('unauthenticated');
       expect(screen.getByTestId('user-email')).toHaveTextContent('none');
       expect(screen.getByTestId('has-token')).toHaveTextContent('no');
-      expect(screen.getByTestId('has-refresh-token')).toHaveTextContent('no');
     }, { timeout: 2000 });
   });
 
@@ -132,7 +135,7 @@ describe('Auth Lifecycle & In-Memory Token Safety', () => {
     await waitFor(() => {
       expect(screen.getByTestId('auth-status')).toHaveTextContent('authenticated');
       expect(screen.getByTestId('has-token')).toHaveTextContent('yes');
-      expect(screen.getByTestId('has-refresh-token')).toHaveTextContent('yes');
+      expect(screen.getByTestId('exposed-refresh-token')).toHaveTextContent('encapsulated');
     }, { timeout: 2000 });
   });
 });

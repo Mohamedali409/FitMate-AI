@@ -3,6 +3,7 @@ import { config } from '../config/env';
 import {
   AuthResponseData,
   UserSummary,
+  UserProfileSnapshot,
   OnboardingFormState,
   RefreshResponseData,
   LogoutResponseData,
@@ -13,6 +14,7 @@ export interface AuthApiAdapter {
   login(email: string, password: string): Promise<AuthResponseData>;
   register(data: OnboardingFormState): Promise<AuthResponseData>;
   getMe(token: string): Promise<UserSummary>;
+  getProfile(token: string): Promise<UserProfileSnapshot | null>;
   refresh(refreshToken: string): Promise<RefreshResponseData>;
   logout(refreshToken: string): Promise<LogoutResponseData>;
 }
@@ -48,6 +50,21 @@ export class RealAuthAdapter implements AuthApiAdapter {
 
   async getMe(token: string): Promise<UserSummary> {
     return apiClient.get<UserSummary>('/auth/me', { token });
+  }
+
+  async getProfile(token: string): Promise<UserProfileSnapshot | null> {
+    const raw = await apiClient.get<any>('/users/profile', { token });
+    if (!raw) return null;
+    return {
+      goal: raw.goal,
+      dailyCalorieTarget: raw.nutritionTargets?.dailyCalorieTarget ?? 2000,
+      proteinTargetGrams: raw.nutritionTargets?.proteinTargetGrams ?? 150,
+      carbsTargetGrams: raw.nutritionTargets?.carbsTargetGrams ?? 200,
+      fatTargetGrams: raw.nutritionTargets?.fatTargetGrams ?? 60,
+      isEstimated: true,
+      unitSystem: raw.unitSystem ?? 'metric',
+      preferredLanguage: raw.preferredLanguage ?? 'en',
+    };
   }
 
   async refresh(refreshToken: string): Promise<RefreshResponseData> {
@@ -133,22 +150,26 @@ export class MockAuthAdapter implements AuthApiAdapter {
     };
   }
 
+  async getProfile(_token: string): Promise<UserProfileSnapshot | null> {
+    return {
+      goal: 'fat_loss',
+      dailyCalorieTarget: 2150,
+      proteinTargetGrams: 160.0,
+      carbsTargetGrams: 215.0,
+      fatTargetGrams: 60.0,
+      isEstimated: true,
+      unitSystem: 'metric',
+      preferredLanguage: 'en',
+    };
+  }
+
   async refresh(_refreshToken: string): Promise<RefreshResponseData> {
     await new Promise((resolve) => setTimeout(resolve, 150));
     return {
-      user: {
-        id: 'usr_mock_demo_001',
-        email: 'demo@fitmate.ai',
-        displayName: 'Captain Fit',
-        isEmailVerified: true,
-        isOnboardingCompleted: true,
-      },
-      tokens: {
-        accessToken: 'mock_jwt_access_token_refreshed',
-        tokenType: 'Bearer',
-        expiresIn: 900,
-        refreshToken: 'mock_refresh_token_refreshed',
-      },
+      accessToken: 'mock_jwt_access_token_refreshed',
+      tokenType: 'Bearer',
+      expiresIn: 900,
+      refreshToken: 'mock_refresh_token_refreshed',
     };
   }
 

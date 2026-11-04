@@ -20,6 +20,22 @@ export class ApiClientError extends Error {
 interface RequestOptions extends RequestInit {
   token?: string;
   params?: Record<string, string | number | boolean | undefined>;
+  _isRetry?: boolean;
+}
+
+export type TokenRefreshHandler = () => Promise<string | null>;
+export type AccessTokenProvider = () => string | null;
+
+let tokenRefreshHandler: TokenRefreshHandler | null = null;
+let accessTokenProvider: AccessTokenProvider | null = null;
+let activeRefreshPromise: Promise<string | null> | null = null;
+
+export function setTokenRefreshHandler(handler: TokenRefreshHandler | null): void {
+  tokenRefreshHandler = handler;
+}
+
+export function setAccessTokenProvider(provider: AccessTokenProvider | null): void {
+  accessTokenProvider = provider;
 }
 
 export class ApiClient {
@@ -54,8 +70,9 @@ export class ApiClient {
       ...(headers as Record<string, string>),
     };
 
-    if (token) {
-      requestHeaders['Authorization'] = `Bearer ${token}`;
+    const authToken = token || accessTokenProvider?.() || undefined;
+    if (authToken) {
+      requestHeaders['Authorization'] = `Bearer ${authToken}`;
     }
 
     let response: Response;
@@ -88,6 +105,33 @@ export class ApiClient {
     // Handle standard FitMate AI ApiErrorResponse envelope
     if (!response.ok || json.success === false) {
       const errResponse = json as ApiErrorResponse;
+
+      // Handle 401 recovery (SEC-FE-006): coordinate refresh and replay once
+      const isAuthEndpoint =
+        path.includes('/auth/refresh') ||
+        path.includes('/auth/login') ||
+        path.includes('/auth/register');
+
+      if (response.status === 401 && !options._isRetry && !isAuthEndpoint && tokenRefreshHandler) {
+        try {
+          if (!activeRefreshPromise) {
+            activeRefreshPromise = tokenRefreshHandler().finally(() => {
+              activeRefreshPromise = null;
+            });
+          }
+          const newToken = await activeRefreshPromise;
+          if (newToken) {
+            return this.request<T>(path, {
+              ...options,
+              token: newToken,
+              _isRetry: true,
+            });
+          }
+        } catch {
+          // If refresh fails, fall through to throw ApiClientError
+        }
+      }
+
       throw new ApiClientError(
         response.status,
         errResponse.error || {
@@ -111,8 +155,9 @@ export class ApiClient {
       ...(headers as Record<string, string>),
     };
 
-    if (token) {
-      requestHeaders['Authorization'] = `Bearer ${token}`;
+    const authToken = token || accessTokenProvider?.() || undefined;
+    if (authToken) {
+      requestHeaders['Authorization'] = `Bearer ${authToken}`;
     }
 
     let response: Response;
@@ -132,6 +177,33 @@ export class ApiClient {
 
     if (!response.ok || json.success === false) {
       const errResponse = json as ApiErrorResponse;
+
+      // Handle 401 recovery (SEC-FE-006): coordinate refresh and replay once
+      const isAuthEndpoint =
+        path.includes('/auth/refresh') ||
+        path.includes('/auth/login') ||
+        path.includes('/auth/register');
+
+      if (response.status === 401 && !options._isRetry && !isAuthEndpoint && tokenRefreshHandler) {
+        try {
+          if (!activeRefreshPromise) {
+            activeRefreshPromise = tokenRefreshHandler().finally(() => {
+              activeRefreshPromise = null;
+            });
+          }
+          const newToken = await activeRefreshPromise;
+          if (newToken) {
+            return this.requestPaginated<T>(path, {
+              ...options,
+              token: newToken,
+              _isRetry: true,
+            });
+          }
+        } catch {
+          // Fall through
+        }
+      }
+
       throw new ApiClientError(
         response.status,
         errResponse.error || {

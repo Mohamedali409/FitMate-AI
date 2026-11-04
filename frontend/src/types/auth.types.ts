@@ -56,12 +56,14 @@ export interface AuthTokens {
 export interface AuthResponseData {
   user: UserSummary;
   tokens: AuthTokens;
-  profile: UserProfileSnapshot;
+  profile?: UserProfileSnapshot | null;
 }
 
 export interface RefreshResponseData {
-  user: UserSummary;
-  tokens: AuthTokens;
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  refreshToken: string;
 }
 
 export interface UserIdentityDto {

@@ -10,13 +10,15 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { LogIn, Sparkles, AlertCircle } from 'lucide-react';
 import { ApiClientError } from '../../lib/api/client';
+import { sanitizeRedirectPath } from '../../lib/utils/security';
 
 export const LoginForm: React.FC = () => {
   const { t, language } = useLanguage();
   const { login, isMock } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectPath = searchParams?.get('redirect') || '/dashboard';
+  const rawRedirect = searchParams?.get('redirect');
+  const redirectPath = sanitizeRedirectPath(rawRedirect, '/dashboard');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

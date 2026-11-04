@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, ApiClientError } from './client';
 import { config } from '../config/env';
 import {
   FoodItemSummary,
@@ -25,7 +25,7 @@ const MOCK_FOODS: FoodItemDetail[] = [
     catalogId: 'food_eg_koshari_001',
     nameEn: 'Egyptian Koshari',
     nameAr: 'كشري مصري',
-    category: 'egyptian_dishes',
+    category: 'middle_eastern_dishes',
     servingSizeGrams: 100,
     caloriesPer100g: 165,
     proteinPer100g: 5.8,
@@ -51,7 +51,7 @@ const MOCK_FOODS: FoodItemDetail[] = [
     catalogId: 'food_eg_foul_mudammas_oil_001',
     nameEn: 'Foul Mudammas with Olive Oil',
     nameAr: 'فول مدمس بزيت الزيتون',
-    category: 'egyptian_dishes',
+    category: 'legumes',
     servingSizeGrams: 100,
     caloriesPer100g: 135,
     proteinPer100g: 7.2,
@@ -77,7 +77,7 @@ const MOCK_FOODS: FoodItemDetail[] = [
     catalogId: 'food_intl_chicken_breast_grilled_001',
     nameEn: 'Grilled Chicken Breast',
     nameAr: 'صدور دجاج مشوية',
-    category: 'poultry_meat',
+    category: 'protein',
     servingSizeGrams: 100,
     caloriesPer100g: 165,
     proteinPer100g: 31.0,
@@ -104,7 +104,7 @@ const MOCK_FOODS: FoodItemDetail[] = [
     catalogId: 'food_intl_oats_cooked_water_001',
     nameEn: 'Rolled Oats (Cooked in Water)',
     nameAr: 'شوفان مطبوخ بالماء',
-    category: 'grains_breads',
+    category: 'carbohydrates',
     servingSizeGrams: 100,
     caloriesPer100g: 71,
     proteinPer100g: 2.5,
@@ -131,7 +131,7 @@ const MOCK_FOODS: FoodItemDetail[] = [
     catalogId: 'food_eg_baladi_bread_001',
     nameEn: 'Egyptian Baladi Flatbread',
     nameAr: 'عيش بلدي مصري',
-    category: 'grains_breads',
+    category: 'baked_goods',
     servingSizeGrams: 100,
     caloriesPer100g: 252,
     proteinPer100g: 8.5,
@@ -187,9 +187,32 @@ export class RealNutritionAdapter implements NutritionApiAdapter {
     params: { q?: string; category?: string; page?: number; limit?: number },
     token?: string
   ): Promise<{ items: FoodItemSummary[]; pagination: PaginationMeta }> {
+    const hasQuery = typeof params.q === 'string' && params.q.trim().length >= 2;
+    const hasCategory = Boolean(params.category);
+
+    if (!hasQuery && !hasCategory) {
+      return {
+        items: [],
+        pagination: {
+          page: params.page || 1,
+          limit: params.limit || 20,
+          totalItems: 0,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      };
+    }
+
+    const queryParams: Record<string, string | number | undefined> = {};
+    if (hasQuery) queryParams.q = params.q!.trim();
+    if (hasCategory) queryParams.category = params.category;
+    if (params.page) queryParams.page = params.page;
+    if (params.limit) queryParams.limit = params.limit;
+
     const res = await apiClient.requestPaginated<FoodItemSummary>('/nutrition/foods/search', {
       token,
-      params,
+      params: queryParams,
     });
     return {
       items: res.data,
@@ -198,7 +221,14 @@ export class RealNutritionAdapter implements NutritionApiAdapter {
   }
 
   async getFoodById(id: string, token?: string): Promise<FoodItemDetail> {
-    return apiClient.get<FoodItemDetail>(`/nutrition/foods/${id}`, { token });
+    if (!id || typeof id !== 'string' || !/^[0-9a-fA-F]{24}$/.test(id.trim())) {
+      throw new ApiClientError(400, {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid food item ID format. Must be a 24-character hexadecimal ObjectId',
+      });
+    }
+
+    return apiClient.get<FoodItemDetail>(`/nutrition/foods/${id.trim()}`, { token });
   }
 
   async getDailySummary(date: string, token?: string): Promise<DailyNutritionSummary> {
@@ -217,6 +247,23 @@ export class MockNutritionAdapter implements NutritionApiAdapter {
     _token?: string
   ): Promise<{ items: FoodItemSummary[]; pagination: PaginationMeta }> {
     await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const hasQuery = typeof params.q === 'string' && params.q.trim().length >= 2;
+    const hasCategory = Boolean(params.category);
+
+    if (!hasQuery && !hasCategory) {
+      return {
+        items: [],
+        pagination: {
+          page: params.page || 1,
+          limit: params.limit || 10,
+          totalItems: 0,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      };
+    }
 
     let filtered = [...MOCK_FOODS];
 
@@ -273,7 +320,10 @@ export class MockNutritionAdapter implements NutritionApiAdapter {
     await new Promise((resolve) => setTimeout(resolve, 150));
     const food = MOCK_FOODS.find((f) => f.id === id || f.catalogId === id);
     if (!food) {
-      return MOCK_FOODS[0]; // Graceful fallback
+      throw new ApiClientError(404, {
+        code: 'NOT_FOUND',
+        message: 'Food item not found',
+      });
     }
     return food;
   }

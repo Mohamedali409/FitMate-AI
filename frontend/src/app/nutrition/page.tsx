@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLanguage } from '../../lib/i18n/LanguageContext';
 import { ProtectedRoute } from '../../components/auth/ProtectedRoute';
 import { AppHeader } from '../../components/layout/AppHeader';
@@ -12,6 +12,7 @@ import { FoodDetailModal } from '../../features/nutrition/FoodDetailModal';
 import { MealSlotSection } from '../../features/nutrition/MealSlotSection';
 import { DisclaimerBadge } from '../../components/ui/DisclaimerBadge';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { Button } from '../../components/ui/Button';
 import { getNutritionAdapter } from '../../lib/api/nutrition.adapter';
 import {
   FoodItemSummary,
@@ -20,61 +21,120 @@ import {
   FoodCategory,
   MealSlotName,
 } from '../../types/nutrition.types';
-import { Utensils, Search } from 'lucide-react';
+import { Utensils, Search, AlertCircle, RefreshCw } from 'lucide-react';
 
 export default function NutritionPage() {
   const { t, language } = useLanguage();
   const [diary, setDiary] = useState<DailyNutritionSummary | null>(null);
   const [searchResults, setSearchResults] = useState<FoodItemSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedFood, setSelectedFood] = useState<FoodItemDetail | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [activeQuery, setActiveQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState<FoodCategory | undefined>('middle_eastern_dishes');
+  const [selectedFoodId, setSelectedFoodId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoadingDiary, setIsLoadingDiary] = useState(true);
 
-  // Load initial diary and seed food search
+  // Request race-condition guardian (prevents stale responses from overwriting newer ones)
+  const requestIdRef = useRef(0);
+
+  // Core search execution function
+  const executeSearch = useCallback(
+    async (q: string, category?: FoodCategory) => {
+      const requestId = ++requestIdRef.current;
+      setActiveQuery(q);
+      setActiveCategory(category);
+
+      const hasQuery = typeof q === 'string' && q.trim().length >= 2;
+      const hasCategory = Boolean(category);
+
+      // If neither valid q nor category is active, return empty prompt state
+      if (!hasQuery && !hasCategory) {
+        setSearchResults([]);
+        setSearchError(null);
+        setIsSearching(false);
+        return;
+      }
+
+      setIsSearching(true);
+      setSearchError(null);
+
+      try {
+        const adapter = getNutritionAdapter();
+        const res = await adapter.searchFoods({
+          q: hasQuery ? q.trim() : undefined,
+          category,
+          limit: 15,
+        });
+
+        // Discard result if a newer request was dispatched while this was pending
+        if (requestId === requestIdRef.current) {
+          setSearchResults(res.items);
+          setSearchError(null);
+        }
+      } catch (err: any) {
+        if (requestId === requestIdRef.current) {
+          console.error('Food search failed:', err);
+          setSearchError(
+            language === 'ar'
+              ? 'تعذر البحث في قاعدة الأطعمة. يرجى التحقق من الاتصال وإعادة المحاولة.'
+              : 'Unable to search food catalog. Please check your connection and try again.'
+          );
+          setSearchResults([]);
+        }
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setIsSearching(false);
+        }
+      }
+    },
+    [language]
+  );
+
+  // Initial load: fetch diary (preview) and preload authentic regional dishes
   useEffect(() => {
+    let isMounted = true;
+
     async function init() {
       try {
         const adapter = getNutritionAdapter();
         const data = await adapter.getDailySummary('2026-11-02');
-        setDiary(data);
-
-        // Preload catalog with default category items
-        setIsSearching(true);
-        const catalog = await adapter.searchFoods({ limit: 6 });
-        setSearchResults(catalog.items);
+        if (isMounted) {
+          setDiary(data);
+        }
       } catch (err) {
-        console.error('Failed to initialize nutrition page:', err);
+        console.error('Failed to initialize nutrition diary:', err);
       } finally {
-        setIsLoadingDiary(false);
-        setIsSearching(false);
+        if (isMounted) {
+          setIsLoadingDiary(false);
+        }
+      }
+
+      // Initial curated preload with authentic Middle Eastern dishes
+      if (isMounted) {
+        executeSearch('', 'middle_eastern_dishes');
       }
     }
-    init();
-  }, []);
 
-  const handleSearch = async (q: string, category?: FoodCategory) => {
-    setIsSearching(true);
-    try {
-      const adapter = getNutritionAdapter();
-      const res = await adapter.searchFoods({ q, category, limit: 12 });
-      setSearchResults(res.items);
-    } catch (err) {
-      console.error('Food search failed:', err);
-    } finally {
-      setIsSearching(false);
-    }
+    init();
+
+    return () => {
+      isMounted = false;
+      requestIdRef.current = 0; // Invalidate pending requests on unmount
+    };
+  }, [executeSearch]);
+
+  const handleSearch = (q: string, category?: FoodCategory) => {
+    executeSearch(q, category);
   };
 
-  const handleSelectFood = async (summary: FoodItemSummary) => {
-    try {
-      const adapter = getNutritionAdapter();
-      const detail = await adapter.getFoodById(summary.id);
-      setSelectedFood(detail);
-      setIsModalOpen(true);
-    } catch (err) {
-      console.error('Failed to load food details:', err);
-    }
+  const handleRetrySearch = () => {
+    executeSearch(activeQuery, activeCategory);
+  };
+
+  const handleSelectFood = (summary: FoodItemSummary) => {
+    setSelectedFoodId(summary.id);
+    setIsModalOpen(true);
   };
 
   const handleAddFoodToMeal = (slot: MealSlotName, food: FoodItemDetail, grams: number) => {
@@ -129,6 +189,8 @@ export default function NutritionPage() {
     });
   };
 
+  const hasNoActiveFilter = !activeQuery.trim() && !activeCategory;
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-surface-background">
@@ -174,7 +236,6 @@ export default function NutritionPage() {
                   <MealSlotSection
                     slots={diary.slots}
                     onAddFoodClick={(_slot) => {
-                      // Scroll down to search on mobile or focus search box
                       const el = document.getElementById('food-search-container');
                       el?.scrollIntoView({ behavior: 'smooth' });
                     }}
@@ -195,15 +256,40 @@ export default function NutritionPage() {
                     </span>
                   </div>
 
-                  <FoodSearchBox onSearch={handleSearch} isLoading={isSearching} />
+                  <FoodSearchBox
+                    onSearch={handleSearch}
+                    isLoading={isSearching}
+                    initialCategory="middle_eastern_dishes"
+                  />
 
-                  {/* Results List */}
+                  {/* Results List / Loading / Error / Empty States */}
                   <div className="space-y-2.5 max-h-[560px] overflow-y-auto pe-1">
                     {isSearching ? (
                       <div className="space-y-2 py-4">
                         <Skeleton className="h-20 rounded-lg" />
                         <Skeleton className="h-20 rounded-lg" />
                         <Skeleton className="h-20 rounded-lg" />
+                      </div>
+                    ) : searchError ? (
+                      <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-center space-y-2 py-6">
+                        <AlertCircle className="w-6 h-6 text-red-500 mx-auto" />
+                        <p className="text-xs text-red-700 dark:text-red-300">{searchError}</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleRetrySearch}
+                          className="gap-1.5 text-xs mx-auto"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>{t('nutrition.retry')}</span>
+                        </Button>
+                      </div>
+                    ) : hasNoActiveFilter ? (
+                      <div className="text-center py-8 space-y-1">
+                        <Search className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto" />
+                        <p className="text-xs text-gray-400">
+                          {t('nutrition.searchPrompt')}
+                        </p>
                       </div>
                     ) : searchResults.length === 0 ? (
                       <p className="text-xs text-gray-400 italic text-center py-8">
@@ -227,15 +313,17 @@ export default function NutritionPage() {
 
         <MobileNav />
 
-        {/* Food Detail Modal */}
+        {/* Food Detail Modal (Live EP-NUTR-006 & Serving Calculator) */}
         <FoodDetailModal
-          food={selectedFood}
+          foodId={selectedFoodId}
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={() => {
+            setIsModalOpen(false);
+            setSelectedFoodId(null);
+          }}
           onAddToMeal={handleAddFoodToMeal}
         />
       </div>
     </ProtectedRoute>
   );
 }
-
