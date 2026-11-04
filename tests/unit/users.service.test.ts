@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Types } from 'mongoose';
 import { UsersService } from '../../src/modules/users/users.service.js';
+import { AppError, ErrorCode } from '../../src/shared/errors/AppError.js';
 
 describe('Users Service Logic & Target Protections (Unit)', () => {
   let mockUsersRepo: any;
@@ -112,9 +113,94 @@ describe('Users Service Logic & Target Protections (Unit)', () => {
   });
 
   describe('Cross-Module Target Snapshot Provider (getProfileSnapshot)', () => {
-    it('should return active target snapshot with isEstimated: true for valid user', async () => {
+    it('1. should throw 404 RESOURCE_NOT_FOUND when user profile is absent', async () => {
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(null);
+
+      await expect(service.getProfileSnapshot('507f1f77bcf86cd799439011')).rejects.toThrow(
+        'User profile not found.'
+      );
+    });
+
+    it('2. should throw 404 RESOURCE_NOT_FOUND when onboarding is not completed', async () => {
       const mockProfile: any = {
         userId: new Types.ObjectId(),
+        isOnboardingCompleted: false,
+        dailyCalorieTarget: 2000,
+        proteinTargetGrams: 150.0,
+        carbsTargetGrams: 200.0,
+        fatTargetGrams: 65.0,
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+      await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toThrow(
+        'User profile onboarding is not completed.'
+      );
+    });
+
+    it('3. should throw 404 RESOURCE_NOT_FOUND when dailyCalorieTarget is missing or invalid', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
+        proteinTargetGrams: 150.0,
+        carbsTargetGrams: 200.0,
+        fatTargetGrams: 65.0,
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+      await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toThrow(
+        'User nutrition targets not found.'
+      );
+    });
+
+    it('4. should throw 404 RESOURCE_NOT_FOUND when proteinTargetGrams is missing or invalid', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
+        dailyCalorieTarget: 2000,
+        carbsTargetGrams: 200.0,
+        fatTargetGrams: 65.0,
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+      await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toThrow(
+        'User nutrition targets not found.'
+      );
+    });
+
+    it('5. should throw 404 RESOURCE_NOT_FOUND when carbsTargetGrams is missing or invalid', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
+        dailyCalorieTarget: 2000,
+        proteinTargetGrams: 150.0,
+        fatTargetGrams: 65.0,
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+      await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toThrow(
+        'User nutrition targets not found.'
+      );
+    });
+
+    it('6. should throw 404 RESOURCE_NOT_FOUND when fatTargetGrams is missing or invalid', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
+        dailyCalorieTarget: 2000,
+        proteinTargetGrams: 150.0,
+        carbsTargetGrams: 200.0,
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+      await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toThrow(
+        'User nutrition targets not found.'
+      );
+    });
+
+    it('7. should return actual stored target snapshot with isEstimated: true for complete valid profile', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
         dailyCalorieTarget: 2150,
         proteinTargetGrams: 155.0,
         carbsTargetGrams: 230.0,
@@ -138,12 +224,148 @@ describe('Users Service Logic & Target Protections (Unit)', () => {
       expect(snapshot.preferredLanguage).toBe('ar');
     });
 
-    it('should throw RESOURCE_NOT_FOUND when user profile is absent', async () => {
-      mockUsersRepo.findProfileByUserId.mockResolvedValue(null);
+    it('8. should preserve customized targets when isTargetsCustomized is true', async () => {
+      const mockProfile: any = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
+        dailyCalorieTarget: 2600,
+        proteinTargetGrams: 210.0,
+        carbsTargetGrams: 280.0,
+        fatTargetGrams: 75.0,
+        isTargetsCustomized: true,
+        unitSystem: 'imperial',
+        preferredLanguage: 'en',
+      };
+      mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
 
-      await expect(service.getProfileSnapshot('507f1f77bcf86cd799439011')).rejects.toThrow(
-        'User profile not found.'
-      );
+      const snapshot = await service.getProfileSnapshot(mockProfile.userId.toString());
+
+      expect(snapshot.isTargetsCustomized).toBe(true);
+      expect(snapshot.dailyCalorieTarget).toBe(2600);
+      expect(snapshot.proteinTargetGrams).toBe(210.0);
+      expect(snapshot.carbsTargetGrams).toBe(280.0);
+      expect(snapshot.fatTargetGrams).toBe(75.0);
+      expect(snapshot.unitSystem).toBe('imperial');
+      expect(snapshot.preferredLanguage).toBe('en');
+    });
+
+    describe('Non-finite target validation hardening (OBS-VAL-001)', () => {
+      const validBaseProfile = {
+        userId: new Types.ObjectId(),
+        isOnboardingCompleted: true,
+        dailyCalorieTarget: 2200,
+        proteinTargetGrams: 160.0,
+        carbsTargetGrams: 220.0,
+        fatTargetGrams: 70.0,
+        isTargetsCustomized: false,
+        unitSystem: 'metric' as const,
+        preferredLanguage: 'en' as const,
+      };
+
+      it('should reject NaN for dailyCalorieTarget with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, dailyCalorieTarget: NaN };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject Infinity for dailyCalorieTarget with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, dailyCalorieTarget: Infinity };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject NaN for proteinTargetGrams with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, proteinTargetGrams: NaN };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject Infinity for proteinTargetGrams with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, proteinTargetGrams: Infinity };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject NaN for carbsTargetGrams with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, carbsTargetGrams: NaN };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject Infinity for carbsTargetGrams with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, carbsTargetGrams: Infinity };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject NaN for fatTargetGrams with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, fatTargetGrams: NaN };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should reject Infinity for fatTargetGrams with 404 RESOURCE_NOT_FOUND', async () => {
+        const mockProfile: any = { ...validBaseProfile, fatTargetGrams: Infinity };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        await expect(service.getProfileSnapshot(mockProfile.userId.toString())).rejects.toMatchObject({
+          statusCode: 404,
+          errorCode: ErrorCode.RESOURCE_NOT_FOUND,
+          message: 'User nutrition targets not found.',
+        });
+      });
+
+      it('should accept valid positive calorie targets and zero macro targets (e.g. ketogenic diet)', async () => {
+        const mockProfile: any = {
+          ...validBaseProfile,
+          dailyCalorieTarget: 1800,
+          carbsTargetGrams: 0.0,
+          proteinTargetGrams: 140.0,
+          fatTargetGrams: 130.0,
+        };
+        mockUsersRepo.findProfileByUserId.mockResolvedValue(mockProfile);
+
+        const snapshot = await service.getProfileSnapshot(mockProfile.userId.toString());
+        expect(snapshot.dailyCalorieTarget).toBe(1800);
+        expect(snapshot.carbsTargetGrams).toBe(0.0);
+        expect(snapshot.proteinTargetGrams).toBe(140.0);
+        expect(snapshot.fatTargetGrams).toBe(130.0);
+      });
     });
   });
 });

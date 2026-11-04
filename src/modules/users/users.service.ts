@@ -55,6 +55,8 @@ export class UsersService {
   /**
    * Cross-Module Target Snapshot Provider (EP-NUTR-001 Integration)
    * Exposes active nutritional targets and preferences to NutritionModule without coupling persistence.
+   * Stricter validation: Throws 404 RESOURCE_NOT_FOUND if profile is missing, onboarding is incomplete,
+   * or any required target (calories, protein, carbs, fat) is missing or invalid.
    */
   async getProfileSnapshot(userId: string) {
     const profile = await this.usersRepo.findProfileByUserId(userId);
@@ -62,13 +64,41 @@ export class UsersService {
       throw AppError.notFound('User profile not found.', ErrorCode.RESOURCE_NOT_FOUND);
     }
 
+    if (profile.isOnboardingCompleted !== true) {
+      throw AppError.notFound(
+        'User profile onboarding is not completed.',
+        ErrorCode.RESOURCE_NOT_FOUND
+      );
+    }
+
+    const validTargets =
+      typeof profile.dailyCalorieTarget === 'number' &&
+      Number.isFinite(profile.dailyCalorieTarget) &&
+      profile.dailyCalorieTarget > 0 &&
+      typeof profile.proteinTargetGrams === 'number' &&
+      Number.isFinite(profile.proteinTargetGrams) &&
+      profile.proteinTargetGrams >= 0 &&
+      typeof profile.carbsTargetGrams === 'number' &&
+      Number.isFinite(profile.carbsTargetGrams) &&
+      profile.carbsTargetGrams >= 0 &&
+      typeof profile.fatTargetGrams === 'number' &&
+      Number.isFinite(profile.fatTargetGrams) &&
+      profile.fatTargetGrams >= 0;
+
+    if (!validTargets) {
+      throw AppError.notFound(
+        'User nutrition targets not found.',
+        ErrorCode.RESOURCE_NOT_FOUND
+      );
+    }
+
     return {
       userId: profile.userId.toString(),
-      dailyCalorieTarget: profile.dailyCalorieTarget || 2000,
-      proteinTargetGrams: profile.proteinTargetGrams || 150.0,
-      carbsTargetGrams: profile.carbsTargetGrams || 200.0,
-      fatTargetGrams: profile.fatTargetGrams || 65.0,
-      isTargetsCustomized: profile.isTargetsCustomized,
+      dailyCalorieTarget: profile.dailyCalorieTarget!,
+      proteinTargetGrams: profile.proteinTargetGrams!,
+      carbsTargetGrams: profile.carbsTargetGrams!,
+      fatTargetGrams: profile.fatTargetGrams!,
+      isTargetsCustomized: Boolean(profile.isTargetsCustomized),
       isEstimated: true as const,
       unitSystem: profile.unitSystem,
       preferredLanguage: profile.preferredLanguage,
